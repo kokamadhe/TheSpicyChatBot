@@ -3,7 +3,6 @@ import requests
 import os
 from dotenv import load_dotenv
 
-# Load .env variables
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -11,11 +10,10 @@ TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 app = Flask(__name__)
 
-# Generate a reply using OpenRouter
 def generate_reply(user_input):
     try:
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            "https://openrouter.ai/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json"
@@ -37,7 +35,6 @@ def generate_reply(user_input):
         print("Text reply error:", e)
         return "Oops 😳 something went wrong with my AI brain..."
 
-# Send message to Telegram
 def send_message(chat_id, text):
     payload = {
         "chat_id": chat_id,
@@ -46,7 +43,6 @@ def send_message(chat_id, text):
     response = requests.post(TELEGRAM_API_URL, json=payload)
     print("Telegram send status:", response.status_code, response.text)
 
-# Webhook route
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.get_json()
@@ -60,10 +56,10 @@ def webhook():
 
     return "ok"
 
-# Test homepage
 @app.route("/", methods=["GET"])
 def home():
     return "🤖 Spicy AI Telegram Bot is running!"
+
 
 
 
