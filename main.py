@@ -3,31 +3,15 @@ import requests
 import os
 from dotenv import load_dotenv
 
+# Load .env variables
 load_dotenv()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
 app = Flask(__name__)
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-BOT_USERNAME = os.getenv("BOT_USERNAME", "SpicyChatBot")  # optional
-
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-
-@app.route("/", methods=["POST"])
-def handle_message():
-    data = request.get_json()
-    print("Incoming:", data)
-
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        user_message = data["message"].get("text", "")
-
-        reply_text = generate_reply(user_message)
-
-        send_message(chat_id, reply_text)
-
-    return "OK"
-
+# Generate a reply using OpenRouter
 def generate_reply(user_input):
     try:
         response = requests.post(
@@ -37,32 +21,51 @@ def generate_reply(user_input):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "mistral-7b",  # or try "openchat"
-                "messages": [{"role": "user", "content": user_input}],
-                "max_tokens": 1000,  # reduced to prevent error
-                "temperature": 0.8
+                "model": "openchat/openchat-7b",
+                "messages": [
+                    {"role": "system", "content": "You are a flirty, spicy girlfriend. Respond in a seductive and cheeky way."},
+                    {"role": "user", "content": user_input}
+                ],
+                "max_tokens": 500,
+                "temperature": 0.9
             }
         )
-
         response.raise_for_status()
         result = response.json()
-        reply = result["choices"][0]["message"]["content"]
-        return reply
-
+        return result["choices"][0]["message"]["content"]
     except Exception as e:
         print("Text reply error:", e)
-        return "Sorry, something went wrong. Try again later."
+        return "Oops 😳 something went wrong with my AI brain..."
 
+# Send message to Telegram
 def send_message(chat_id, text):
     payload = {
         "chat_id": chat_id,
         "text": text
     }
     response = requests.post(TELEGRAM_API_URL, json=payload)
-    print("Telegram send status:", response.status_code)
+    print("Telegram send status:", response.status_code, response.text)
 
-if __name__ == "__main__":
-    app.run(debug=True)
+# Webhook route
+@app.route("/", methods=["POST"])
+def webhook():
+    data = request.get_json()
+    print("Incoming:", data)
+
+    if "message" in data and "text" in data["message"]:
+        chat_id = data["message"]["chat"]["id"]
+        user_input = data["message"]["text"]
+        reply = generate_reply(user_input)
+        send_message(chat_id, reply)
+
+    return "ok"
+
+# Test homepage
+@app.route("/", methods=["GET"])
+def home():
+    return "🤖 Spicy AI Telegram Bot is running!"
+
+
 
 
 
