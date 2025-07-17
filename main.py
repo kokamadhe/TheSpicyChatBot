@@ -1,82 +1,102 @@
-import os
+from flask import Flask, request, jsonify
 import requests
-from flask import Flask, request
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-BOT_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-
-# Your OpenRouter API key here
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-OPENROUTER_IMAGE_URL = "https://openrouter.ai/api/v1/chat/completions"
-
 app = Flask(__name__)
 
-def send_message(chat_id, text):
-    requests.post(f"{BOT_URL}/sendMessage", json={
-        "chat_id": chat_id,
-        "text": text
-    })
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+DEFAULT_CHAT_MODEL = "openai/gpt-3.5-turbo"
+DEFAULT_IMAGE_MODEL = "modelslab/revAnimated"
 
-def send_photo(chat_id, photo_url):
-    requests.post(f"{BOT_URL}/sendPhoto", json={
-        "chat_id": chat_id,
-        "photo": photo_url
-    })
+# 🧠 TEXT REPLY
+def chat_reply(message):
+    response = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": DEFAULT_CHAT_MODEL,
+            "messages": [
+                {"role": "system", "content": "You're a flirty, spicy chatbot."},
+                {"role": "user", "content": message},
+            ],
+        },
+    )
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
 
+# 🎨 IMAGE GENERATION
 def generate_image(prompt):
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    json_data = {
-        "model": "openai/dall-e-2",  # or another supported model
-        "messages": [
-            {"role": "user", "content": f"Generate an image: {prompt}"}
-        ],
-        "stream": False
-    }
+    response = requests.post(
+        "https://openrouter.ai/api/v1/images/generations",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": DEFAULT_IMAGE_MODEL,
+            "prompt": prompt,
+            "size": "512x768",
+            "num_images": 1,
+        },
+    )
 
-    try:
-        response = requests.post(OPENROUTER_IMAGE_URL, headers=headers, json=json_data)
-        response.raise_for_status()
-        data = response.json()
-        # The response will have image URL inside choices -> message -> content or output
-        # Adjust this part according to OpenRouter image API docs or response format:
-        image_url = None
-        if "choices" in data and len(data["choices"]) > 0:
-            content = data["choices"][0]["message"]["content"]
-            # The content should be the image URL or JSON containing URL
-            # If just URL:
-            image_url = content.strip()
-        return image_url
-    except Exception as e:
-        print("Image generation error:", e)
-        return None
+    data = response.json()
+    return data["data"][0]["url"] if "data" in data else None
 
+# 📥 TELEGRAM WEBHOOK HANDLER
 @app.route("/", methods=["POST"])
-def webhook():
-    data = request.get_json()
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text", "")
+def handle_message():
+    try:
+        data = request.get_json()
+        message = data["message"]
+        chat_id = message["chat"]["id"]
+        text = message.get("text", "")
 
-        if text == "/start":
-            send_message(chat_id, "Hello! Use /image <prompt> to generate an AI image.")
-        elif text.startswith("/image"):
+        # 🔍 Check if it's an /image command
+        if text.lower().startswith("/image"):
             prompt = text.replace("/image", "").strip()
             if not prompt:
-                send_message(chat_id, "Please provide an image prompt.\nExample:\n/image a beautiful sunset")
+                send_message(chat_id, "Please include a prompt, e.g. `/image a sexy anime girl`")
+                return jsonify({"ok": True})
+
+            image_url = generate_image(prompt)
+            if image_url:
+                send_photo(chat_id, image_url)
             else:
-                send_message(chat_id, "Generating your image, please wait...")
-                image_url = generate_image(prompt)
-                if image_url:
-                    send_photo(chat_id, image_url)
-                else:
-                    send_message(chat_id, "Sorry, failed to generate image. Please try again later.")
-        else:
-            send_message(chat_id, f"💬 You said: {text}")
-    return "ok"
+                send_message(chat_id, "❌ Failed to generate image. Try again.")
+            return jsonify({"ok": True})
+
+        # ✨ Regular chat reply
+        reply = chat_reply(text)
+        send_message(chat_id, reply)
+
+    except Exception as e:
+        print("Error:", e)
+    return jsonify({"ok": True})
+
+# 📨 SEND TEXT MESSAGE
+def send_message(chat_id, text):
+    requests.post(
+        f"{TELEGRAM_API_URL}/sendMessage",
+        json={"chat_id": chat_id, "text": text}
+    )
+
+# 🖼️ SEND IMAGE
+def send_photo(chat_id, photo_url):
+    requests.post(
+        f"{TELEGRAM_API_URL}/sendPhoto",
+        json={"chat_id": chat_id, "photo": photo_url}
+    )
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
 
